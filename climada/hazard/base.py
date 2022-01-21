@@ -38,6 +38,7 @@ import rasterio
 from rasterio.features import rasterize
 from rasterio.warp import reproject, Resampling, calculate_default_transform
 from scipy import sparse
+from netCDF4 import Dataset
 
 from climada.hazard.tag import Tag as TagHazard
 from climada.hazard.centroids.centr import Centroids
@@ -1236,6 +1237,55 @@ class Hazard():
                 setattr(haz, var_name, hf_data.get(var_name))
 
         hf_data.close()
+        return haz
+
+    @classmethod
+    def from_netcdf(cls, file_name, intensity_var, event_id, frequency, haz_type, description):
+        """Read hazard in netcdf format and create 
+
+        Parameters
+        ----------
+        file_name: str
+            file name to read, with netcdf format
+
+        Returns
+        -------
+        haz : climada.hazard.Hazard
+            Hazard object from the provided netcdf file
+
+        """
+
+        LOGGER.info('Reading %s', file_name)
+        haz = cls()
+        nc_data = Dataset(file_name, "r", format="NETCDF4")
+
+        haz.centroids = Centroids.from_lat_lon(nc_data.variables['latitude'][...].ravel(), nc_data.variables['longitude'][...].ravel())
+
+        haz.tag.haz_type = haz_type
+        haz.tag.file_name = file_name
+        haz.tag.description = description
+
+        haz.event_id = event_id
+        haz.frequency = frequency
+
+        # Data is stored as a 3D dense array in the netcdf, but needs to be 2D as input to sparse array so reshape first.
+        shape = (len(event_id), len(haz.centroids.lat))
+        # Read variable data and create a mask.
+        fill_val = getattr(nc_data[intensity_var], '_FillValue')
+        variable_data = np.array(nc_data.variables[intensity_var])
+        mask = np.ma.masked_where(variable_data == fill_val, variable_data).mask
+        # Replace fill value with nan
+        variable_data = np.where(variable_data < fill_val, variable_data, np.nan)
+        variable_data = np.reshape(variable_data, shape)
+        haz.intensity = sparse.csr_matrix(variable_data)
+        # Use mask 
+        fraction = np.ma.array(np.random.rand(*shape).astype('e'), mask=mask, fill_value=np.nan).filled()
+        haz.fraction = sparse.csr_matrix(fraction)
+
+        haz.units = getattr(nc_data[intensity_var], 'units')
+
+        nc_data.close()
+
         return haz
 
     def _set_coords_centroids(self):
