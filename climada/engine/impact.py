@@ -34,7 +34,7 @@ import matplotlib.animation as animation
 import pandas as pd
 import xlsxwriter
 from tqdm import tqdm
-
+from netCDF4 import Dataset
 
 from climada.entity import Exposures, Tag
 from climada.entity.exposures import INDICATOR_CENTR
@@ -605,6 +605,86 @@ class Impact():
         LOGGER.info('Writing %s', file_name)
         np.savez(file_name, data=self.imp_mat.data, indices=self.imp_mat.indices,
                  indptr=self.imp_mat.indptr, shape=self.imp_mat.shape)
+
+    def eai_to_netcdf(self, file_name, shape, metadata_attributes=None):
+        """
+        Write Out Expected Annual Impact Data to netCDF to a netCDF file.
+
+        file_name: str
+            Target path of the output netcdf file that will contain eai data.
+        shape: list
+            Length of the latitude and longitude coordinate dimensions.
+        metadata_atrributes: dict
+            Any attributes to be written to the root group of the netcdf file.
+        """
+
+        # extract the coordinate exposure data. Split them into seperate lat and long arrays
+        lat, lon = np.hsplit(self.coord_exp.data, 2)
+
+        lat = np.reshape(lat, shape)
+        lon = np.reshape(lon, shape)
+
+        netcdf_file = Dataset(file_name, "w", format="NETCDF4")
+
+        netcdf_file.createDimension("latitude", shape[0])
+        netcdf_file.createDimension("longitude", shape[1])
+
+        annual_impact = netcdf_file.createVariable("annual_impact", "f4", ("latitude", "longitude"))
+        latitude = netcdf_file.createVariable("exposure_latitude", "f4", ("latitude", "longitude"))
+        longitude = netcdf_file.createVariable("exposure_longitude", "f4", ("latitude", "longitude"))
+
+        latitude[:] = lat
+        longitude[:] = lon
+        annual_impact[:] = np.reshape(self.eai_exp.data, shape)
+
+        if metadata_attributes:
+            netcdf_file.setncatts(metadata_attributes)
+
+        netcdf_file.close()
+
+    def imp_to_netcdf(self, file_name, shape, original_netcdf, metadata_attributes=None):
+        """
+        Write Out Impact Data to netCDF to a netCDF file.
+
+        file_name: str
+            Target path of the output netcdf file that will contain eai data.
+        shape: list
+            Length of the latitude and longitude coordinate dimensions.
+        original_netcdf: str
+            Path of a netcdf file to copy time dimension and variable data from.
+        metadata_atrributes: dict
+            Any attributes to be written to the root group of the netcdf file.
+        """
+
+        # extract the coordinate exposure data. Split them into seperate lat and long arrays
+        lat, lon = np.hsplit(self.coord_exp.data, 2)
+
+        lat = np.reshape(lat, shape)
+        lon = np.reshape(lon, shape)
+
+        netcdf_file = Dataset(file_name, "w", format="NETCDF4")
+        hazard_file = Dataset(original_netcdf, "r", format="NETCDF4")
+
+        netcdf_file.createDimension("time", hazard_file.dimensions['time'].size)
+        netcdf_file.createDimension("latitude", shape[0])
+        netcdf_file.createDimension("longitude", shape[1])
+
+        impact = netcdf_file.createVariable("impact", "f4", ("time", "latitude", "longitude"))
+        latitude = netcdf_file.createVariable("exposure_latitude", "f4", ("latitude", "longitude"))
+        longitude = netcdf_file.createVariable("exposure_longitude", "f4", ("latitude", "longitude"))
+        time = netcdf_file.createVariable("time", "f4", ("time"))
+
+        latitude[:] = lat
+        longitude[:] = lon
+        time[:] = hazard_file.variables["time"][:]
+        time.setncatts(hazard_file["time"].__dict__)
+        impact[:] = np.reshape(self.imp_mat.toarray(), [len(self.event_id)] + shape)
+
+        if metadata_attributes:
+            netcdf_file.setncatts(metadata_attributes)
+
+        hazard_file.close()
+        netcdf_file.close()
 
     def calc_impact_year_set(self, all_years=True, year_range=None):
         """Calculate yearly impact from impact data.

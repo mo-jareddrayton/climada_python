@@ -24,6 +24,7 @@ __all__ = ['Exposures', 'add_sea', 'INDICATOR_IMPF', 'INDICATOR_CENTR']
 import logging
 import copy
 
+import cftime
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -33,6 +34,7 @@ import rasterio
 from rasterio.warp import Resampling
 import contextily as ctx
 import cartopy.crs as ccrs
+from netCDF4 import Dataset
 
 from climada.entity.tag import Tag
 import climada.util.hdf5_handler as u_hdf5
@@ -857,6 +859,51 @@ class Exposures():
 
         _read_mat_metadata(exp, data, file_name, var_names)
         return exp
+
+    @classmethod
+    def from_netcdf(cls, file_path, var_name, year, fill_value=None):
+        """
+        Parameters
+        ----------
+        file_path: str
+            filepath of a netcdf file.
+        var_name: str
+            name of variable within the netcdf file.
+        year: int
+            year of 
+        fill_value: float
+            Replace nan values with another value.
+
+        """
+
+        exposure_netcdf = Dataset(file_path)
+        exp_df = pd.DataFrame()
+
+        units = getattr(exposure_netcdf['time'], 'units')
+        calendar = getattr(exposure_netcdf['time'], 'calendar')
+        dates = cftime.num2date(exposure_netcdf.variables['time'][:], units, calendar)
+
+        year_to_index = {k.timetuple().tm_year: v for v, k in enumerate(dates)}
+
+        index = year_to_index[year]
+
+        exp_df['value'] = exposure_netcdf.variables[var_name][index][...].ravel()
+
+        if fill_value:
+            exp_df['value'] = exp_df['value'].fillna(fill_value)
+
+        # provide latitude and longitude
+        exp_df['latitude'] = exposure_netcdf.variables['latitude'][...].ravel()
+        exp_df['longitude'] = exposure_netcdf.variables['longitude'][...].ravel()
+
+        exp_df['impf_Heatstress'] = 1
+        exp_df['centr_Heatstress'] = np.arange(len(exp_df))
+
+        exposure_netcdf.close()
+
+        exposure = cls(exp_df)
+
+        return exposure
 
     #
     # Extends the according geopandas method
