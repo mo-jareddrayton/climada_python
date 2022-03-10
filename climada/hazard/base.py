@@ -1240,7 +1240,7 @@ class Hazard():
         return haz
 
     @classmethod
-    def from_netcdf(cls, file_path, intensity_var, event_id, frequency, haz_type, description, fill_value=None, replace_value=0.0, fraction_value=1.0):
+    def from_netcdf(cls, file_path, intensity_var, event_id, frequency, haz_type, description, fill_value=None, replace_value=0.0, fraction_value=1.0, latitude_name='latitude', longitude_name='longitude'):
         """Read hazard in netcdf format and create
 
         Parameters
@@ -1271,8 +1271,8 @@ class Hazard():
         haz = cls()
         nc_data = Dataset(file_path, "r", format="NETCDF4")
 
-        haz.centroids = Centroids.from_lat_lon(nc_data.variables['latitude'][...].ravel(),
-                                               nc_data.variables['longitude'][...].ravel())
+        haz.centroids = Centroids.from_lat_lon(nc_data.variables[latitude_name][...].ravel(),
+                                               nc_data.variables[longitude_name][...].ravel())
 
         haz.tag.haz_type = haz_type
         haz.tag.file_name = file_path
